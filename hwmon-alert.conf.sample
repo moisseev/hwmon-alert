@@ -1,0 +1,157 @@
+
+#===========================#
+# hwmon-alert configuration #
+#===========================#
+
+# Out of range sensors database location.
+$DB_File = "/var/lib/hwmon-alert/offrange.db";
+
+# in % of limit value
+$Hysteresis = 0.2;
+
+# Hardware monitor programs followed by command line options.
+%MonitorCmd = (
+    mbmon    => '/usr/local/bin/mbmon -Irc 1',
+    bsdhwmon => '/usr/local/sbin/bsdhwmon -c',
+);
+
+# Capture regexps.
+# First parenthesis: (sensor name), second parenthesis: (value).
+%Regex = (
+    mbmon    => '^([A-Z0-9]+)\s+:\s+([-+.0-9]+)$',
+    bsdhwmon => '^([-+. A-z0-9]+),([-.0-9]+),[A-Z]+$',
+);
+
+#    MONITOR_PROGRAM_NAME_1 => {
+#        SENSOR => {
+#            upper  => value upper threshold,   numeric
+#            lower  => value lower threshold,   numeric
+#              (for termosensors: expected minimum room ambient temperature)
+#            factor => real value scale factor, numeric (optional)
+#            descr  => 'sensor description',    string
+#            unit   => 'measurement unit',      string
+#        },
+#    },
+#    MONITOR_PROGRAM_NAME_2 => {
+#        ...
+#    },
+
+%Conf = (
+
+    bsdhwmon => {
+        'CPU Temp 1' => {
+            # 41 C at idle
+            upper => 43,
+            lower => 24,
+            descr => 'CPU Temp 1',
+            unit  => 'C',
+        },
+        'CPU Temp 2' => {
+            # 38 C idle
+            upper => 39,
+            lower => 24,
+            descr => 'CPU temp 2',
+            unit  => 'C',
+        },
+        'Sys Temp' => {
+            # 31 C idle
+            upper => 44,
+            lower => 24,
+            descr => 'Main board',
+            unit  => 'C',
+        },
+        'CPU1 Vcore' => {
+            # 1.276 V
+            upper => '+1.278',
+            lower => '+1.244',
+            unit  => 'V',
+        },
+        'CPU2 Vcore' => {
+            # 1.280 V
+            upper => '+1.286',
+            lower => '+1.262',
+            unit  => 'V',
+        },
+        FAN1 => {
+            # 4440 rpm
+            upper => 4560,
+            lower => 4400,
+            descr => 'CPU fan 1',
+            unit  => 'rpm',
+        },
+        FAN2 => {
+            # 4440 rpm
+            upper => 4440,
+            lower => 4326,
+            descr => 'CPU fan 2',
+            unit  => 'rpm',
+        },
+        FAN3 => {
+            # 792 rpm
+            upper => 799,
+            lower => 781,
+            descr => 'Rear fan',
+            unit  => 'rpm',
+        },
+        FAN4 => {
+            # 1917 rpm
+            upper => 1939,
+            lower => 1917,
+            descr => 'Front fan',
+            unit  => 'rpm',
+        },
+    },
+
+    mbmon => {
+        TEMP0 => {
+            # 31 C at idle
+            upper => 42,
+            lower => 24,
+            descr => 'Main board',
+            unit  => 'C',
+        },
+        V12N => {
+            # -12.12 V
+            upper => '-12.04',
+            lower => '-12.20',
+            unit  => 'V',
+        },
+        V12P => {
+            # +12.28 V
+            upper => '+12.28',
+            lower => '+12.22',
+            unit  => 'V',
+        },
+        V33 => {
+            # +3.36 V
+            upper => '+3.38',
+            lower => '+3.34',
+            unit  => 'V',
+        },
+        V50N => {
+            # +0.43 V
+            upper => '+0.43',
+            lower => '+0.28',
+            unit  => 'V',
+        },
+        V50P => {
+            # +5.11 V
+            upper => '+5.13',
+            lower => '+5.03',
+            unit  => 'V',
+        },
+        VC0 => {
+            # +1.5 V
+            upper => '+1.55',
+            lower => '+1.47',
+            unit  => 'V',
+        },
+        VC1 => {
+            # +3.38 V
+            upper => '+3.39',
+            lower => '+3.34',
+            unit  => 'V',
+        },
+    },
+
+);

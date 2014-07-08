@@ -1,0 +1,317 @@
+#!/usr/bin/perl -w
+
+#========================================================================
+# hwmon-alert
+#========================================================================
+# Version 0.0.1, 2014-07-08
+#========================================================================
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+use Pod::Usage;
+use DB_File;
+
+our $opt_c = "/usr/local/etc/hwmon-alert.conf";
+our ( $opt_a, $opt_l, $opt_help, $opt_man );
+
+# Values defined in configuration file
+our ( $DB_File, $Hysteresis, %Conf, %MonitorCmd, %Regex );
+
+GetOptions( "c=s", "a", "l", "help|?", "man" ) || pod2usage(2);
+pod2usage( -exitstatus => 0, -verbose => 2 ) if $opt_man;
+pod2usage(1) if $opt_help;
+
+&ConfigDataRead($opt_c);
+
+my ( $realValue, $gap, %offRange, @detected, %returned, %list, %colWidth );
+my $sensorChanged = 0;
+
+unless ($opt_l) {
+    tie %offRange, 'DB_File', $DB_File
+      or die "Cannot open DBM $DB_File: $!";
+}
+
+for my $monitor ( sort keys %Conf ) {
+
+    my $re = qr/$Regex{$monitor}/;    # Precompile for efficiency.
+
+    open( MONITOR, "-|", $MonitorCmd{$monitor} )
+      or die "Can't execute $MonitorCmd{$monitor} : $!";
+    while (<MONITOR>) {
+        unless (/$re/) {
+            warn "Unexpected $monitor output\n";
+            next;
+        }
+        next unless ( exists( $Conf{$monitor}{$1} ) );
+        $realValue =
+          $Conf{$monitor}{$1}{factor} ? $2 * $Conf{$monitor}{$1}{factor} : $2;
+
+        if ($opt_l) {
+            $list{"$monitor:$1"} = $realValue;
+            next;
+        }
+
+        $gap = ( exists $offRange{"$monitor:$1"} ? $Hysteresis : 0 ) / 100;
+
+        # check limits
+        if (   ( $realValue > $Conf{$monitor}{$1}{upper} * ( 1 - $gap ) )
+            || ( $realValue < $Conf{$monitor}{$1}{lower} * ( 1 + $gap ) ) )
+        {
+            &SensorDetected("$monitor:$1");
+        }
+        else {
+            &SensorRestored("$monitor:$1");
+        }
+    }
+    close(MONITOR)
+      || warn "close $monitor failed: $!";
+}
+
+if ($opt_l) {
+    %colWidth = &CalcColWidth( keys %list );
+    map { &PrintSensorInfo( $_, $list{$_} ); } sort keys %list;
+}
+else {
+    %colWidth = &CalcColWidth( keys %offRange, keys %returned );
+    &PrintStatusChanged();
+    &PrintStatus()
+      if ( $opt_a || ( $sensorChanged > 0 ) );
+    untie %offRange;
+}
+
+exit 0;
+
+sub ConfigDataRead {
+    unless ( my $ret = do "@_" ) {
+        warn "Couldn't execute @_: $@" if $@;
+        warn "Couldn't open @_: $!"    if $!;
+        die;
+    }
+}
+
+sub SensorDetected {
+    my ($monitor_sensor) = @_;
+    if ( !exists $offRange{$monitor_sensor} ) {
+        push @detected, $monitor_sensor;
+        $sensorChanged = 1;
+    }
+    $offRange{$monitor_sensor} = $realValue;
+}
+
+sub SensorRestored {
+    my ($monitor_sensor) = @_;
+    if ( exists $offRange{$monitor_sensor} ) {
+        delete $offRange{$monitor_sensor};
+        $returned{$monitor_sensor} = $realValue;
+        $sensorChanged = 1;
+    }
+}
+
+# Calculates some output columns width
+sub CalcColWidth {
+    my %width = (
+        descr          => 0,
+        monitor_sensor => 0,
+        unit           => 0,
+    );
+    for (@_) {
+        my ( $monitor, $sensor ) = split( ':', $_ );
+
+        # Remove the sensor from the sates cache
+        # if it not exists in configuration anymore
+        delete $offRange{$_}
+          if ( !exists $Conf{$monitor}{$sensor} );
+
+        for ( keys %width ) {
+            $width{$_} = length $Conf{$monitor}{$sensor}{$_}
+              if ( defined $Conf{$monitor}{$sensor}{$_}
+                && length $Conf{$monitor}{$sensor}{$_} > $width{$_} );
+        }
+
+        $width{monitor_sensor} = length $_
+          if ( length $_ > $width{monitor_sensor} );
+    }
+
+    $width{descr} += 4;
+    return %width;
+}
+
+sub PrintSensorInfo {
+    my ( $monitor_sensor, $realValue ) = @_;
+    my ( $monitor, $sensor ) = split( ':', $monitor_sensor );
+
+    printf
+      "%-$colWidth{descr}s %-$colWidth{monitor_sensor}s : %6s %-$colWidth{unit}s : (%s...%s) %s\n",
+      $Conf{$monitor}{$sensor}{descr} ? "[ $Conf{$monitor}{$sensor}{descr} ]" : "",
+      $monitor_sensor,
+      $realValue,
+      $Conf{$monitor}{$sensor}{unit} ? "$Conf{$monitor}{$sensor}{unit}" : "",
+      $Conf{$monitor}{$sensor}{lower},
+      $Conf{$monitor}{$sensor}{upper},
+      $Conf{$monitor}{$sensor}{unit} ? "$Conf{$monitor}{$sensor}{unit}" : "";
+}
+
+sub PrintStatusChanged {
+    if (%returned) {
+        print "\nSensors has been returned to normal values:\n";
+        map { &PrintSensorInfo( $_, $returned{$_} ); } sort keys %returned;
+    }
+    if (@detected) {
+        print "\nOut-of-range values has been detected:\n";
+        map { &PrintSensorInfo( $_, $offRange{$_} ); } sort @detected;
+    }
+}
+
+sub PrintStatus {
+    if (%offRange) {
+        print "\nSensors are in out-of-range state:\n";
+        map { &PrintSensorInfo( $_, $offRange{$_} ); } sort keys %offRange;
+    }
+
+    #else {
+    #    print "\nAll sensors has normal values.\n";
+    #}
+}
+
+__END__
+
+=head1 NAME
+
+hwmon-alert - alerting tool for hardware monitoring programs like bsdhwmon(1)
+and mbmon(1)
+
+=head1 SYNOPSIS
+
+B<hwmon-alert -a -c> configfile
+
+B<hwmon-alert -help|-man>
+
+ Options:
+       -c               configuration file name
+       -a               always list all out-of-range sensors
+       -l               list current values for all configured sensors
+       -help            brief help message
+       -man             full documentation
+
+=head1 DESCRIPTION
+
+The hwmon-alert(1) is a Perl script that prints notifications on STDOUT when
+sensors values reported by hardware monitoring programs changes it's states:
+goes out of predefined range or returns to normal conditions.
+
+Out-of-range sensors permanently cached in database. The program provides no
+output if none of the sensors has changed it state.
+
+Also a list of the sensors that currently are out-of-range is prepended to the
+end of the output. Optionally this list may be printed independently of sensor
+changes.
+
+=head1 OPTIONS
+
+=over
+
+=item  B<-a>
+
+Always output the out-of-range sensors list. By default the hwmon-alert(1)
+provides any output only when a sensor change occurs.
+
+=item  B<-c> configfile
+
+Configuration file. Default is /usr/local/etc/hwmon-alert.conf
+
+=item B<--help>
+
+Brief help.
+
+=item B<--man>
+
+Full documentation.
+
+=back
+
+=head1 REQUIREMENTS
+
+=over
+
+=item *
+
+A Linux, Solaris, or Unix based server.
+
+=item *
+
+Perl version 5.8.0 or later.  If you don't have Perl, please
+see L<http://www.cpan.org>.
+
+=item *
+
+Installed bdshwmon(1), mbmon(1)or other motherboard monitor.
+See L<http://www.nt.phys.kyushu-u.ac.jp/shimizu/download/download.html>.
+
+=back
+
+=head1 INSTALLATION
+
+=over
+
+=item 1
+
+Run
+
+ make install
+
+=item 2
+
+Manually copy the configuration file
+
+ cp /usr/local/etc/hwmon-alert.conf.sample /usr/local/etc/hwmon-alert.conf
+
+=item 3
+
+Edit hwmon-alert.conf to match your configuration.
+
+=back
+
+=head1 EXAMPLES
+
+Cron jobs to get notifications in mailbox at schedule:
+
+ # Send reports every day morning if some sensors are out-of-range
+ 10  8  *  *  *    /usr/local/bin/hwmon-alert -a | mail -Es "hwmon-alert@`hostname` `date '+\%Y-\%m-\%d \%H:\%M'` daily report" root
+ # Perform check every 15 minutes and send alert only if the state of a sensor has changed
+ */15  *  *  *  *  /usr/local/bin/hwmon-alert | mail -Es "hwmon-alert@`hostname` `date '+\%Y-\%m-\%d \%H:\%M'` sensor state has changed" root
+
+=head1 AUTHOR
+
+S<Alexander Moisseev E<lt>moiseev@mezonplus.ruE<gt>>
+
+=head1 LICENSE and COPYRIGHT
+
+ Copyright (c) 2014, Alexander Moisseev
+ All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions
+ are met:
+
+ 1. Redistributions of source code must retain the above copyright
+ notice, this list of conditions and the following disclaimer.
+
+ 2. Redistributions in binary form must reproduce the above copyright
+ notice, this list of conditions and the following disclaimer in the
+ documentation and/or other materials provided with the distribution.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+ IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+ TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+ PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+=cut
