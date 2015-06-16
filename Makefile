@@ -11,11 +11,11 @@ cleanfiles = hwmon-alert.1 \
              $(release).tgz \
              $(release).tgz.md5
 
-prefix ?= /usr/local
+PREFIX ?= /usr/local
 
-bindir  = $(prefix)/bin
-confdir = $(prefix)/etc
-mandir  = $(prefix)/man/man1
+bindir  = $(PREFIX)/bin
+confdir = $(PREFIX)/etc
+mandir  = $(PREFIX)/man/man1
 libdir  = /var/lib/$(program)
 
 INSTALL = /usr/bin/install -c
