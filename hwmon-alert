@@ -53,11 +53,11 @@ for my $monitor ( sort keys %Conf ) {
             next;
         }
 
-        $gap = ( exists $offRange{"$monitor:$1"} ? $Hysteresis : 0 ) / 100;
+        $gap = ( exists $offRange{"$monitor:$1"} ? 0 : $Hysteresis / 100 );
 
         # check limits
-        if (   ( $realValue > $Conf{$monitor}{$1}{upper} * ( 1 - $gap ) )
-            || ( $realValue < $Conf{$monitor}{$1}{lower} * ( 1 + $gap ) ) )
+        if (   ( $realValue > $Conf{$monitor}{$1}{upper} * ( 1 + $gap ) )
+            || ( $realValue < $Conf{$monitor}{$1}{lower} * ( 1 - $gap ) ) )
         {
             &SensorDetected("$monitor:$1");
         }
