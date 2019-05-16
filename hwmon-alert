@@ -1,11 +1,5 @@
 #!/usr/local/bin/perl -w
 
-#========================================================================
-# hwmon-alert
-#========================================================================
-# Version 0.0.1, 2014-07-08
-#========================================================================
-
 use strict;
 use warnings;
 
@@ -56,8 +50,8 @@ for my $monitor ( sort keys %Conf ) {
         $gap = ( exists $offRange{"$monitor:$1"} ? 0 : $Hysteresis / 100 );
 
         # check limits
-        if (   ( $realValue > $Conf{$monitor}{$1}{upper} * ( 1 + $gap ) )
-            || ( $realValue < $Conf{$monitor}{$1}{lower} * ( 1 - $gap ) ) )
+        if (   ( $realValue > $Conf{$monitor}{$1}{upper} + abs( $Conf{$monitor}{$1}{upper} ) * $gap )
+            || ( $realValue < $Conf{$monitor}{$1}{lower} - abs( $Conf{$monitor}{$1}{lower} ) * $gap ) )
         {
             &SensorDetected("$monitor:$1");
         }
